@@ -1,0 +1,156 @@
+/********************************************************************
+ Software License Agreement:
+
+ The software supplied herewith by Microchip Technology Incorporated
+ (the "Company") for its PIC(R) Microcontroller is intended and
+ supplied to you, the Company's customer, for use solely and
+ exclusively on Microchip PIC Microcontroller products. The
+ software is owned by the Company and/or its supplier, and is
+ protected under applicable copyright laws. All rights are reserved.
+ Any use in violation of the foregoing restrictions may subject the
+ user to criminal sanctions under applicable laws, as well as to
+ civil liability for the breach of the terms and conditions of this
+ license.
+
+ THIS SOFTWARE IS PROVIDED IN AN "AS IS" CONDITION. NO WARRANTIES,
+ WHETHER EXPRESS, IMPLIED OR STATUTORY, INCLUDING, BUT NOT LIMITED
+ TO, IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+ PARTICULAR PURPOSE APPLY TO THIS SOFTWARE. THE COMPANY SHALL NOT,
+ IN ANY CIRCUMSTANCES, BE LIABLE FOR SPECIAL, INCIDENTAL OR
+ CONSEQUENTIAL DAMAGES, FOR ANY REASON WHATSOEVER.
+ *******************************************************************/
+
+/** INCLUDES *******************************************************/
+#include "system.h"
+
+#include <stdint.h>
+#include <string.h>
+#include <stddef.h>
+
+#include "usb.h"
+
+#include "application_code.h"
+#include "usb_config.h"
+
+/** VARIABLES ******************************************************/
+
+#define LED_LAT LATAbits.LATA5
+#define LED_TRIS TRISAbits.TRISA5
+#define LED_ON  1
+#define LED_OFF 0
+#define PIN_INPUT  1
+#define PIN_OUTPUT 0
+
+// State definitions
+#define RECEIVING_COMMAND 0
+#define INTERPRETING_COMMAND 1
+#define COMMAND_LED_ON 2
+#define COMMAND_LED_OFF 3
+
+#define MAX_COMMAND_LENGTH 8
+
+static uint8_t readBuffer[CDC_DATA_OUT_EP_SIZE];
+static uint8_t writeBuffer[CDC_DATA_IN_EP_SIZE];
+static uint8_t command[MAX_COMMAND_LENGTH];
+static uint8_t state = RECEIVING_COMMAND; // initial state
+
+uint8_t ReadCommand()
+{
+    uint8_t command_index = 0;
+    while(true) NO!!!!!!
+    {
+        if( USBUSARTIsTxTrfReady() == true)
+        {
+            uint8_t numBytesRead;
+
+            numBytesRead = getsUSBUSART(readBuffer, sizeof(readBuffer));
+
+            for(uint8_t i=0;i<numBytesRead;i++)
+            {
+                if ((readBuffer[i]==13) || (command_index >= MAX_COMMAND_LENGTH)) // test for carriage return (= end of command)
+                    return command_index; // return length of command
+                command[command_index]=readBuffer[i];
+                command_index++;
+            }
+        }
+        CDCTxService();
+    }
+    return command_index;
+}
+
+/*********************************************************************
+* Function: void ApplicationInitialize(void);
+*
+* Overview: Initializes the application code
+*
+* PreCondition: None
+*
+* Input: None
+*
+* Output: None
+*
+********************************************************************/
+void ApplicationInitialize()
+{
+    CDCInitEP();
+    
+    CDCSetBaudRate(115200); // baud rate
+    CDCSetParity(0); // no parity
+    CDCSetDataSize(8); // 8 data bits
+    CDCSetCharacterFormat(0); // 1 stop bit
+    
+    ANSELA = 0x00; // digital I/O on PORTA
+    LED_TRIS = PIN_OUTPUT;
+}
+
+/*********************************************************************
+* Function: void ApplicationMainTasks(void);
+*
+* Overview: Contains application code which is executed in each
+*   iteration of the main program loop
+*
+* Input: None
+*
+* Output: None
+*
+********************************************************************/
+bool ready_for_command = true;
+
+void ApplicationMainTasks()
+{
+    if (ready_for_command == true)
+    {
+        ReadCommand();
+        ready_for_command = false;
+    }
+    CDCTxService();
+    if (USBUSARTIsTxTrfReady() == true)
+    {
+    if (command[0] == 76 && command[1] == 69 && command[2] == 68 && command[3] == 32 && command[4] == 79 && command[5] == 78) // "LED ON"
+    {
+        LED_LAT = LED_ON;
+        writeBuffer[0] = 111; // o
+        writeBuffer[1] = 110; // n
+        writeBuffer[2] = 33; // !
+        writeBuffer[3] = 13; // [CR]
+        putUSBUSART(writeBuffer,4);
+    }
+    else if (command[0] == 76 && command[1] == 69 && command[2] == 68 && command[3] == 32 && command[4] == 79 && command[5] == 70 && command[6] == 70) // "LED OFF"
+    {
+        LED_LAT = LED_OFF;
+        writeBuffer[0] = 111; // o
+        writeBuffer[1] = 102; // f
+        writeBuffer[2] = 102; // f
+        writeBuffer[3] = 33; // !
+        writeBuffer[4] = 13; // [CR]
+        putUSBUSART(writeBuffer,5);
+    }
+    else
+    {
+        writeBuffer[0] = 63; // ?
+        writeBuffer[1] = 13; // [CR]
+        putUSBUSART(writeBuffer,2);
+    }
+    ready_for_command = true;
+    }
+}
